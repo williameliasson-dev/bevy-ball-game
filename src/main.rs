@@ -17,6 +17,8 @@ fn main() {
         .add_system(confine_player_movement)
         .add_system(enemy_movement)
         .add_system(update_enemy_direction)
+        .add_system(confine_enemy_movement)
+        .add_system(enemy_hit_player)
         .run();
 }
 
@@ -146,6 +148,44 @@ pub fn enemy_movement(mut enemy_query: Query<(&mut Transform, &Enemy)>, time: Re
 
 pub fn update_enemy_direction(
     mut enemy_query: Query<(&Transform, &mut Enemy)>,
+    window_query: Query<&Window, With<PrimaryWindow>>,
+    audio: Res<Audio>,
+    asset_server: Res<AssetServer>
+) {
+    let window = window_query.get_single().unwrap();
+   
+
+    fn play_sound_on_change(audio: &Res<Audio>, asset_server: &Res<AssetServer>){
+        let effect = asset_server.load("audio/pluck_001.ogg");
+
+        audio.play(effect);
+
+    }
+
+
+    let half_enemy_size = ENEMY_SIZE / 2.0;
+    let x_min = 0.0 + half_enemy_size;
+    let x_max = window.width() - half_enemy_size;
+    let y_min = 0.0 + half_enemy_size;
+    let y_max = window.height() - half_enemy_size;
+
+    for (transform, mut enemy) in enemy_query.iter_mut() {
+
+        let translation = transform.translation;
+        if translation.x < x_min || translation.x > x_max {
+            enemy.direction.x *= -1.0;
+            play_sound_on_change(&audio, &asset_server)
+        }
+
+        if translation.y < y_min || translation.y > y_max {
+            enemy.direction.y *= -1.0;
+            play_sound_on_change(&audio, &asset_server)
+        }
+    }
+}
+
+pub fn confine_enemy_movement(
+    mut enemy_query: Query<&mut Transform, With<Enemy>>,
     window_query: Query<&Window, With<PrimaryWindow>>
 ) {
     let window = window_query.get_single().unwrap();
@@ -156,15 +196,46 @@ pub fn update_enemy_direction(
     let y_min = 0.0 + half_enemy_size;
     let y_max = window.height() - half_enemy_size;
 
-    for (transform, mut enemy) in enemy_query.iter_mut() {
-        let translation = transform.translation;
-        println!("{}", enemy.direction);
-        if translation.x < x_min || translation.x > x_max {
-            enemy.direction.x *= -1.0;
+    for mut enemy_transform in enemy_query.iter_mut() {
+        let mut translation = enemy_transform.translation;
+
+        if translation.x < x_min {
+            translation.x = x_min;
+        } else if translation.x > x_max {
+            translation.x = x_max;
         }
 
-        if translation.y < y_min || translation.y > y_max {
-            enemy.direction.y *= -1.0;
+        if translation.y < y_min {
+            translation.y = y_min;
+        } else if translation.y > y_max {
+            translation.y = y_max;
+        }
+        enemy_transform.translation = translation;
+    }
+}
+
+
+
+pub fn enemy_hit_player(
+    mut commands: Commands,
+    mut player_query: Query<(Entity, &Transform), With<Player>>,
+    enemy_query: Query<&Transform, With<Enemy>>,
+    asset_server: Res<AssetServer>,
+    audio: Res<Audio>
+){
+    if let Ok((player_entity, player_transform)) = player_query.get_single_mut() {
+        for enemy_transform in enemy_query.iter(){
+            let distance = player_transform.translation.distance(enemy_transform.translation);
+
+            let player_radius = PLAYER_SIZE / 2.0;
+            let enemy_radius = ENEMY_SIZE / 2.0;
+
+
+            if distance < player_radius + enemy_radius {
+                let effect = asset_server.load("audio/explosionCrunch_000.ogg");
+                audio.play(effect);
+                commands.entity(player_entity).despawn();
+            }
         }
     }
 }
